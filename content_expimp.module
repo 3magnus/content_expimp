@@ -1,0 +1,172 @@
+<?php
+/**
+ * @file
+ * Create (manually or scheduled) and restore backups of your Drupal MySQL
+ * database with an option to exclude table data (e.g. cache_*)
+ */
+
+include_once 'includes/mysqldumpdiff.class.php';
+
+/* Drupal Hooks */
+
+/**
+ * Implements hook_menu().
+ */
+function content_expimp_menu() {
+  $items = array();
+  $items['admin/config/system/content_expimp'] = array(
+    'title' => 'Data Export',
+    'description' => 'Backup/export data with an optional diff feature',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('content_expimp_export'),
+    'access arguments' => array('perform data export'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/config/system/content_expimp/export'] = array(
+    'title' => 'Data Export',
+    'description' => 'Backup/export data with an optional diff feature',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('content_expimp_export'),
+    'access arguments' => array('perform data export'),
+    'weight' => 0,
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/config/system/content_expimp/config'] = array(
+    'title' => 'Administer',
+    'description' => 'Administer configurations for data export.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('content_expimp_admin_settings'),
+    'access arguments' => array('administer data backup'),
+    'weight' => 1,
+    'type' => MENU_LOCAL_TASK,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function content_expimp_permission() {
+  return array(
+    'perform data export' => array(
+      'title' => t('Perform Data Export'),
+      'description' => t('Execute data exporting.'),
+      'restrict access' => TRUE,
+    ),
+    'administer data backup' => array(
+      'title' => t('Administer Data backup'),
+      'description' => t('Configure tables map for data exporting.'),
+      'restrict access' => TRUE,
+    ),
+  );
+}
+
+/**
+ * Implements hook_form().
+ */
+function content_expimp_export() {
+
+  $form['content_expimp_export'] = array(
+    '#type' => 'radios',
+    '#title' => t('Select what to reset'),
+    '#prefix' => '<strong>Select this option to delete the files directory and/or the database tables for the current site, resetting the site so that Drupal is ready to be reinstalled from scratch.</strong>',
+    '#options' => array(
+      'content_expimp_all' => t('Export all'),
+      'content_expimp_users' => t('Export users data'),
+      'content_expimp_nodes' => t('Export nodes data'),
+      'content_expimp_terms' => t('Export terms data'),
+      'content_expimp_general' => t('Export general data')
+    ),
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Generate diff'),
+  );
+
+  $form['#validate'][] = 'content_expimp_export_validate';
+  $form['#submit'][] = 'content_expimp_export_submit';
+
+  return $form;
+}
+
+
+/**
+ * Validation function for admin settings.
+ */
+function content_expimp_export_validate($form, &$form_state) {
+}
+
+/**
+ * Submit handler for admin form.
+ */
+function content_expimp_export_submit($form, &$form_state) {
+  $export_what = $form_state['values']['content_expimp_export'];
+
+  if ($reset_what === 'reset_all' || $reset_what === 'reset_files') {
+    // Delete the files.
+    _drupal_reset_delete_files();
+  }
+
+  if ($reset_what === 'reset_all' || $reset_what === 'reset_database') {
+    // Drop the database
+    _drupal_reset_drop_database();
+  }
+
+  drupal_set_message('Actions will come soon.');
+}
+
+/**
+ * Implements hook_form().
+ */
+function content_expimp_admin_settings() {
+
+  $alltables = array(); //_get_tables();
+  global $databases;
+  $tables = db_find_tables($databases['default']['default']['prefix'] . '%');
+  foreach ($tables as $key=>$value) {
+    $alltables[$key] = $value;
+  }
+  
+  $form['content_expimp_admin_settings'] = array(
+    '#type' => 'radios',
+    '#title' => t('Select what to reset'),
+    '#prefix' => '<strong>Select this option to delete the files directory and/or the database tables for the current site, resetting the site so that Drupal is ready to be reinstalled from scratch.</strong>',
+    '#options' => $alltables
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Generate diff'),
+  );
+
+  $form['#validate'][] = 'content_expimp_admin_settings_validate';
+  $form['#submit'][] = 'content_expimp_admin_settings_submit';
+
+  return $form;
+}
+
+/**
+ * Validation function for admin settings.
+ */
+function content_expimp_admin_settings_validate($form, &$form_state) {
+}
+
+/**
+ * Submit handler for admin form.
+ */
+function content_expimp_admin_settings_submit($form, &$form_state) {
+  $export_what = $form_state['values']['content_expimp_admin_settings'];
+
+  if ($reset_what === 'reset_all' || $reset_what === 'reset_files') {
+    // Delete the files.
+    _drupal_reset_delete_files();
+  }
+
+  if ($reset_what === 'reset_all' || $reset_what === 'reset_database') {
+    // Drop the database
+    _drupal_reset_drop_database();
+  }
+
+  drupal_set_message('Actions will come soon.');
+}
