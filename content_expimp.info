@@ -2,8 +2,11 @@ name = Content exPimp
 description = "Export and import versioned database entries from users content."
 package = Administration
 core = 7.x
-configure = admin/config/content_expimp
 
+configure = admin/content/content_expimp
+stylesheets[all][] = content_expimp.css
+
+; Information added by Drupal.org packaging script on 2016-04-06
 version = "7.x-1.0-alpha01"
 core = "7.x"
 project = "content_expimp"

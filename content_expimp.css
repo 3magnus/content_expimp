@@ -1,0 +1,9 @@
+/**
+ * @file
+ * Content exPimp Administration form.
+ */
+ 
+#content-expimp-admin-settings fieldset {max-width:49.35%;}
+#content-expimp-admin-settings fieldset fieldset {max-width:none;}
+#content-expimp-admin-settings #edit-other-tables {float:right;right:0;width:49.5%;margin:0 0 0 1%;}
+#content-expimp-admin-settings input.form-submit {clear:both;background-color:red;}

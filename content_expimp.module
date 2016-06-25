@@ -14,29 +14,29 @@ include_once 'includes/mysqldumpdiff.class.php';
  */
 function content_expimp_menu() {
   $items = array();
-  $items['admin/config/system/content_expimp'] = array(
-    'title' => 'Data Export',
+  $items['admin/content/content_expimp'] = array(
+    'title' => 'Content exPimp',
     'description' => 'Backup/export data with an optional diff feature',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('content_expimp_export'),
-    'access arguments' => array('perform data export'),
+    'access arguments' => array('perform content export'),
     'type' => MENU_NORMAL_ITEM,
   );
-  $items['admin/config/system/content_expimp/export'] = array(
-    'title' => 'Data Export',
+  $items['admin/content/content_expimp/export'] = array(
+    'title' => 'Content exPimp',
     'description' => 'Backup/export data with an optional diff feature',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('content_expimp_export'),
-    'access arguments' => array('perform data export'),
+    'access arguments' => array('perform content export'),
     'weight' => 0,
     'type' => MENU_DEFAULT_LOCAL_TASK,
   );
-  $items['admin/config/system/content_expimp/config'] = array(
+  $items['admin/content/content_expimp/config'] = array(
     'title' => 'Administer',
     'description' => 'Administer configurations for data export.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('content_expimp_admin_settings'),
-    'access arguments' => array('administer data backup'),
+    'access arguments' => array('administer content export'),
     'weight' => 1,
     'type' => MENU_LOCAL_TASK,
   );
@@ -48,13 +48,13 @@ function content_expimp_menu() {
  */
 function content_expimp_permission() {
   return array(
-    'perform data export' => array(
-      'title' => t('Perform Data Export'),
+    'perform content export' => array(
+      'title' => t('Perform Content Export'),
       'description' => t('Execute data exporting.'),
       'restrict access' => TRUE,
     ),
-    'administer data backup' => array(
-      'title' => t('Administer Data backup'),
+    'administer content export' => array(
+      'title' => t('Administer Content Export'),
       'description' => t('Configure tables map for data exporting.'),
       'restrict access' => TRUE,
     ),
@@ -66,15 +66,15 @@ function content_expimp_permission() {
  */
 function content_expimp_export() {
 
-  $form['content_expimp_export'] = array(
+  $form['export'] = array(
     '#type' => 'radios',
     '#title' => t('Select what to reset'),
-    '#prefix' => '<strong>Select this option to delete the files directory and/or the database tables for the current site, resetting the site so that Drupal is ready to be reinstalled from scratch.</strong>',
     '#options' => array(
       'content_expimp_all' => t('Export all'),
       'content_expimp_users' => t('Export users data'),
       'content_expimp_nodes' => t('Export nodes data'),
       'content_expimp_terms' => t('Export terms data'),
+      'content_expimp_terms' => t('Export locale data'),
       'content_expimp_general' => t('Export general data')
     ),
   );
@@ -120,27 +120,111 @@ function content_expimp_export_submit($form, &$form_state) {
  * Implements hook_form().
  */
 function content_expimp_admin_settings() {
-
-  $alltables = array(); //_get_tables();
-  global $databases;
-  $tables = db_find_tables($databases['default']['default']['prefix'] . '%');
-  foreach ($tables as $key=>$value) {
-    $alltables[$key] = $value;
-  }
+  $alltables = _get_all_database_tables();
+  $leftables = _get_left_tables($alltables);
   
-  $form['content_expimp_admin_settings'] = array(
-    '#type' => 'radios',
-    '#title' => t('Select what to reset'),
-    '#prefix' => '<strong>Select this option to delete the files directory and/or the database tables for the current site, resetting the site so that Drupal is ready to be reinstalled from scratch.</strong>',
-    '#options' => $alltables
+  $form['other_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Tables left'),
+    '#prefix' => '<strong>Select lero lero.</strong>',
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['other_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => $leftables,
+  );
+  $form['users_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Users tables'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['users_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => _get_entity_bundle_options('user', 'all'),
+    '#default_value' => _get_selected_options('user', 'all')
+  );
+  $form['nodes_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Nodes tables'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['nodes_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => _get_entity_bundle_options('node', 'all'),
+    '#default_value' => _get_selected_options('node', 'all')
+  );
+  $contypes = node_type_get_types();
+  foreach ($contypes as $key=>$value) {
+    $form['nodes_tables'][$key] = array(
+      '#type' => 'fieldset',
+      '#title' => t($key.' tables'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['nodes_tables'][$key]['options'] = array(
+      '#type' => 'checkboxes',
+      '#options' => _get_entity_bundle_options('node', $key),
+      '#default_value' => _get_selected_options('node', $key)
+    );
+  }
+  $form['terms_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Terms tables'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['terms_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => _get_entity_bundle_options('term', 'all'),
+    '#default_value' => _get_selected_options('term', 'all')
+  );
+  $vocabularies = taxonomy_get_vocabularies();
+  foreach ($vocabularies as $item) {
+    $vid = strval($item->vid);
+    $form['terms_tables'][$vid] = array(
+      '#type' => 'fieldset',
+      '#title' => t($item->name.' tables'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['terms_tables'][$vid]['options'] = array(
+      '#type' => 'checkboxes',
+      '#options' => _get_entity_bundle_options('term', $vid),
+      '#default_value' => _get_selected_options('term', $vid)
+    );
+  }
+  $form['locale_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Locale tables'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['locale_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => _get_entity_bundle_options('locale', 'all'),
+    '#default_value' => _get_selected_options('locale', 'all')
+  );
+  $form['general_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Shared tables'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['general_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => _get_entity_bundle_options('shared', 'all'),
+    '#default_value' => _get_selected_options('shared', 'all')
   );
 
   $form['submit'] = array(
     '#type' => 'submit',
-    '#value' => t('Generate diff'),
+    '#value' => t('Save configurations'),
   );
 
-  $form['#validate'][] = 'content_expimp_admin_settings_validate';
+  //$form['#validate'][] = 'content_expimp_admin_settings_validate';
   $form['#submit'][] = 'content_expimp_admin_settings_submit';
 
   return $form;
@@ -169,4 +253,78 @@ function content_expimp_admin_settings_submit($form, &$form_state) {
   }
 
   drupal_set_message('Actions will come soon.');
+}
+
+/**
+ * Searches default database and returns all of its tables().
+ */
+function _get_all_database_tables() {
+  global $databases;
+  $chosen_tables = db_find_tables($databases['default']['default']['prefix'] . '%');
+  foreach ($chosen_tables as $key=>$value) {
+    $alltables[$key] = $value;
+  }
+  return $alltables;
+}
+
+/**
+ * Finds all tables not selected for exporting.
+ */
+function _get_left_tables($allthem) {
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  $leftarr = array();
+  foreach ($allthem as $item) {
+    $leftout = TRUE;
+    foreach ($chosen_tables as $entity) {
+      foreach ($entity as $selected_tables) {
+        if (in_array($item, $selected_tables)) {
+          $leftout = FALSE;
+          break;
+        }
+      }
+      if (!$leftout) {
+        break;
+      }
+    }
+    if ($leftout) {
+      $leftarr[$item] = $item;
+    }
+  }
+  return $leftarr;
+}
+
+/**
+ * Searches default database for existing content types.
+ */
+function _get_entity_bundle_options($entity, $bundle = 'all') {
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  if ($bundle != 'all' && ($entity == 'node' || $entity == 'term')) {
+    $targetarr = $chosen_tables[$entity][$bundle];
+  }
+  else {
+    $targetarr = $chosen_tables[$entity]['all'];
+  }
+  $options = array();
+  foreach ($targetarr as $key=>$value) {
+    $options[$value] = $value;
+  }
+  return $options;
+}
+
+/**
+ * Searches default database and returns all of its tables().
+ */
+function _get_selected_options($entity, $bundle = 'all') {
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  if ($entity == 'all') {
+    $targetarr = array_merge($chosen_tables['users'], $chosen_tables['nodes'], $chosen_tables['terms'], $chosen_tables['locale'], $chosen_tables['shared']);
+  }
+  else {
+    $targetarr = $chosen_tables[$entity][$bundle];
+  }
+  $options = array();
+  foreach ($targetarr as $key=>$value) {
+    $options[] = $value;
+  }
+  return $options;
 }
