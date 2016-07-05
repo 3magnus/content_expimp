@@ -5,38 +5,39 @@
  * database with an option to exclude table data (e.g. cache_*)
  */
 
-include_once 'includes/mysqldumpdiff.class.php';
+define('MODULE_VERSION', '7.x-1.x');
+require 'includes/mysqldumpdiff.class.inc';
+require 'includes/db_mysql.class.inc';
 
-/* Drupal Hooks */
 
 /**
  * Implements hook_menu().
  */
 function content_expimp_menu() {
   $items = array();
-  $items['admin/config/system/content_expimp'] = array(
-    'title' => 'Data Export',
+  $items['admin/content/content_expimp'] = array(
+    'title' => 'Content exPimp',
     'description' => 'Backup/export data with an optional diff feature',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('content_expimp_export'),
-    'access arguments' => array('perform data export'),
+    'access arguments' => array('perform content export'),
     'type' => MENU_NORMAL_ITEM,
   );
-  $items['admin/config/system/content_expimp/export'] = array(
-    'title' => 'Data Export',
+  $items['admin/content/content_expimp/export'] = array(
+    'title' => 'Content exPimp',
     'description' => 'Backup/export data with an optional diff feature',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('content_expimp_export'),
-    'access arguments' => array('perform data export'),
+    'access arguments' => array('perform content export'),
     'weight' => 0,
     'type' => MENU_DEFAULT_LOCAL_TASK,
   );
-  $items['admin/config/system/content_expimp/config'] = array(
+  $items['admin/content/content_expimp/config'] = array(
     'title' => 'Administer',
     'description' => 'Administer configurations for data export.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('content_expimp_admin_settings'),
-    'access arguments' => array('administer data backup'),
+    'access arguments' => array('administer content export'),
     'weight' => 1,
     'type' => MENU_LOCAL_TASK,
   );
@@ -48,13 +49,13 @@ function content_expimp_menu() {
  */
 function content_expimp_permission() {
   return array(
-    'perform data export' => array(
-      'title' => t('Perform Data Export'),
+    'perform content export' => array(
+      'title' => t('Perform Content Export'),
       'description' => t('Execute data exporting.'),
       'restrict access' => TRUE,
     ),
-    'administer data backup' => array(
-      'title' => t('Administer Data backup'),
+    'administer content export' => array(
+      'title' => t('Administer Content Export'),
       'description' => t('Configure tables map for data exporting.'),
       'restrict access' => TRUE,
     ),
@@ -64,28 +65,107 @@ function content_expimp_permission() {
 /**
  * Implements hook_form().
  */
-function content_expimp_export() {
+function content_expimp_export($form, &$form_state) {
 
-  $form['content_expimp_export'] = array(
-    '#type' => 'radios',
-    '#title' => t('Select what to reset'),
-    '#prefix' => '<strong>Select this option to delete the files directory and/or the database tables for the current site, resetting the site so that Drupal is ready to be reinstalled from scratch.</strong>',
-    '#options' => array(
-      'content_expimp_all' => t('Export all'),
-      'content_expimp_users' => t('Export users data'),
-      'content_expimp_nodes' => t('Export nodes data'),
-      'content_expimp_terms' => t('Export terms data'),
-      'content_expimp_general' => t('Export general data')
-    ),
-  );
+  if (isset($form_state['sqldump'])) {
+  	 if ($form_state['rows'] > 0) {
+      $form['sql'] = array(
+      '#type' => 'textarea',
+      '#title' => t('File content'),
+      '#rows' => $form_state['rows'],
+      '#default_value' => $form_state['sqldump'],
+      );
+    }
+    else {
+      $form['download'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('File link'),
+        '#collapsible' => FALSE,
+        '#collapsed' => FALSE,
+      );
+      $form['download']['link'] = array(
+        '#markup' => $form_state['link'],
+      );
+      $form['sql'] = array(
+      '#type' => 'textarea',
+      '#title' => t('File header'),
+      '#rows' => 4,
+      '#default_value' => $form_state['sqldump'],
+      );
+    }
+  }
+  else {
+    $form['export'] = array(
+      '#type' => 'checkboxes',
+      '#title' => t('Select what to export'),
+      '#options' => array(
+        'all' => t('Export all'),
+        'user' => t('Export users data'),
+        'node' => t('Export nodes data'),
+        'shared' => t('Export shared data'),
+        'taxonomy_term' => t('Export taxonomy data'),
+        'block' => t('Export blocks data'),
+        'locale' => t('Export locale data'),
+      ),
+    );
+    $form['destination'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Export destination'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['destination']['options'] = array(
+      '#type' => 'select',
+      '#title' => t('Select where to export'),
+      '#required' => TRUE,
+      '#options' => array(
+        0 => t('Print inside a textarea'),
+        1 => t('Save to private directory'),
+      ),
+      '#default_value' => 1,
+      '#description' => 'Required writable private directory /sites/default/private/content_expimp.'
+    );
+    $form['destination']['filename'] = array(
+    '#type' => 'textfield',
+    '#title' => t('File name'),
+    '#default_value' => _get_formated_domain(url('', array('absolute' => TRUE))),
+    );
+    $form['diff'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Diff option'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['diff']['generate_diff'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Generate diff export'),
+      '#description' => 'Export only changes from previous export.',
+    );
+    $form['diff']['older_backup'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Older backup name'),
+    '#required' => FALSE,
+    '#default_value' => '',
+    );
+    $form['append_timestamp'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Append a timestamp.'),
+    '#default_value' => 1,
+    );
+    $form['timestamp_format'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Timestamp format'),
+    '#default_value' => 'Y-m-d\TH-i-s',
+    '#description' => t('Should be a PHP <a href="http://www.php.net/date">date()</a> format string.'),
+    );
+    $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Export'),
+    );
 
-  $form['submit'] = array(
-    '#type' => 'submit',
-    '#value' => t('Generate diff'),
-  );
-
-  $form['#validate'][] = 'content_expimp_export_validate';
-  $form['#submit'][] = 'content_expimp_export_submit';
+    $form['#validate'][] = 'content_expimp_export_validate';
+    $form['#submit'][] = 'content_expimp_export_submit';
+  }
 
   return $form;
 }
@@ -95,52 +175,284 @@ function content_expimp_export() {
  * Validation function for admin settings.
  */
 function content_expimp_export_validate($form, &$form_state) {
+  $valid = FALSE;
+  foreach ($form_state['values']['export'] as $key=>$value) {
+  	 if ($value !== 0) {
+  	 	$valid = TRUE;
+  	 }
+  }
+  if ($valid) {
+    return TRUE;
+  }
+  else {
+    form_set_error('export', t('You have to select at least one type of content to export.'));
+    return FALSE;
+  }
 }
 
 /**
- * Submit handler for admin form.
+ * Submit handler for export form.
  */
 function content_expimp_export_submit($form, &$form_state) {
-  $export_what = $form_state['values']['content_expimp_export'];
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  $dbmysql = new backup_migrate_dbmysql();
+  $filename = _get_file_name($form_state);
+  $exported_content = _export_selected_content($form_state['values']['export'], $dbmysql);
 
-  if ($reset_what === 'reset_all' || $reset_what === 'reset_files') {
-    // Delete the files.
-    _drupal_reset_delete_files();
+  if ($form_state['values']['generate_diff']) {
+  	 $obj = new MySQLdumpDiff();
+    $obj->File1 = DRUPAL_ROOT.'/sites/default/private/content_expimp/'.$form_state['values']['older_backup'];
+    $obj->File2 = $exported_content;
+    $obj->File3 = DRUPAL_ROOT.'/sites/default/private/content_expimp/'.$filename;
+    $obj->Header = $dbmysql->_get_sql_file_header();
+    $obj->Footer = $dbmysql->_get_sql_file_footer();
+    $obj->Options = array(2,2); // 1= with statistics per table , 2= without / 1= with CREATE statements , 2= without
+    $obj->Export = 'file'; // or 'return'
+    $sqlarr = $obj->ProcessFiles();
+    $sql_output = "";
+    foreach ($sqlarr as $key=>$value) {
+      $sql_output .= $value."\n";
+	 }
+    $rows = 16;
+  }
+  else {
+    $sql_output = $dbmysql->_get_sql_file_header();
+    $rows = 16 + count($exported_content);
+    foreach ($exported_content as $key=>$value) {
+      $sql_output .= $value;
+	 }
+    $sql_output .= $dbmysql->_get_sql_file_footer();
   }
 
-  if ($reset_what === 'reset_all' || $reset_what === 'reset_database') {
-    // Drop the database
-    _drupal_reset_drop_database();
-  }
-
-  drupal_set_message('Actions will come soon.');
+  $form_state['link'] = _get_file_link($form_state);
+  $form_state['sqldump'] = $sql_output;
+  $form_state['rows'] = ($rows-16)*2;
+  $form_state['rebuild'] = TRUE;
 }
+
+/**
+ * Process export.
+ */
+function _export_selected_content($selection, $dbmysql) {
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+
+  $tables_selected = array();
+  foreach ($selection as $key=>$value) {
+  	 if ($value !== 0) {
+      foreach ($chosen_tables[$key] as $bundle) {
+        $tables_selected = array_merge($tables_selected, $bundle);
+      }
+    }
+  }
+  $tables_info = $dbmysql->_get_tables_info();
+  $export_sql = array();
+  foreach ($tables_selected as $table) {
+  	 $temp = $dbmysql->_get_table_structure_sql($tables_info, $table);
+  	 $export_sql[] = _remove_comments_from_create($temp);
+    $export_sql = array_merge($export_sql, $dbmysql->_dump_table_data_sql_to_array($table));
+  }
+
+  return $export_sql;
+}
+
+/**
+ * This function is an improvise to go around problems with character encoding inside comments, particularly a similar to the symbol (´).
+ */
+function _remove_comments_from_create($line) {
+  $line_parts = explode(" COMMENT", $line);
+  foreach ($line_parts as $key=>$value) {
+    if ($key == 0) {
+      $nocomments = $value;
+    }
+    else {
+      $pos = strpos($value, "'", 2);
+      $nocomments .= substr($value, $pos+1, strlen($value)-$pos-1);
+    }
+  }
+  return $nocomments;
+}
+
+
+/**
+ * Returns the link to download the sql dump file.
+ */
+function _get_file_link($settings) {
+  $filename = _get_file_name($settings);
+  return '<a href="/sites/default/private/content_expimp/'.$filename.'">'.$filename.'</a>';
+}
+
+/**
+ * Returns a formated file name.
+ */
+function _get_file_name($settings) {
+  // Get the raw filename from the settings.
+  $filename = $settings['values']['filename'];
+  if ($settings['values']['generate_diff']) {
+    $filename = str_replace('[content]', '[content]_diff', $filename);
+  }
+  // Replace any tokens
+  $chosen = _get_chosen_data_string($settings['values']['export']);
+  $filename = str_replace('[content]', $chosen, $filename);
+  // if (module_exists('token') && function_exists('token_replace')) { $filename = token_replace($filename); }
+
+  // Remove illegal characters
+  $filename = preg_replace("/[^a-zA-Z0-9\.\-_]/", "", $filename);
+
+  // Generate a timestamp if needed.
+  $timestamp = '';
+  if ($settings['values']['append_timestamp'] && $settings['values']['timestamp_format']) {
+    $timestamp = format_date(time(), 'custom', $settings['values']['timestamp_format']);
+  }
+  // If there is no filename, then just call it untitled.
+  if (drupal_strlen($filename) == 0) {
+    $filename = 'untitled';
+  }
+  else {
+    // Trim to length if needed to allow the timestamp to fit into the max filename.
+    $max_name_len = 255 - drupal_strlen($timestamp);
+    if (drupal_strlen($filename) > $max_name_len) {
+      $filename = drupal_substr($filename, 0, $max_name_len);
+    }
+    $filename .= '_' . $timestamp;
+    $filename = trim($filename, '-');
+  }
+  return $filename.'.sql';
+}
+
+/**
+ * Returns the keys of chosen options from 'checkboxes' in a formated string.
+ */
+function _get_chosen_data_string($options) {
+  $out = "";
+  foreach ($options as $key=>$value) {
+  	 if ($value !== 0) {
+      $out .= $key.'-';
+    }
+  }
+  return substr($out, 0, -1);
+}
+
+/**
+ * Returns just the domain string replacing dots.
+ */
+function _get_formated_domain($url) {
+  $old = array(".", "http://", "https://", "www.", "/");
+  $new = array("-", "", "", "", "");
+  $out = str_replace($old, $new, $url);
+  return $out.'_[content]';
+} 
+
+/**
+ * Implements hook_theme().
+function content_expimp_theme() {
+  return array(
+    'content_expimp_display' => array(
+      'render element' => 'form',
+    ),
+  );
+}
+
+/**
+ * Builds final export displaying.
+function theme_content_expimp_display($variables) {
+  $element = $variables['form'];
+  $output = '' . t('This is the value that was submitted') . '';
+  $output .= '' . $element['#value'] . '';
+
+  return $output;
+}
+ */
 
 /**
  * Implements hook_form().
  */
 function content_expimp_admin_settings() {
-
-  $alltables = array(); //_get_tables();
-  global $databases;
-  $tables = db_find_tables($databases['default']['default']['prefix'] . '%');
-  foreach ($tables as $key=>$value) {
-    $alltables[$key] = $value;
+  $alltables = _get_all_database_tables();
+  $leftables = _get_leftout_tables($alltables);
+  
+  $form['other_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Tables left'),
+    '#prefix' => '<strong>Select lero lero.</strong>',
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['other_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => $leftables,
+  );
+  $form['term_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Term tables'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['term_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => _get_entity_bundle_options('taxonomy_term', 'all'),
+    '#default_value' => _get_selected_options('taxonomy_term', 'all')
+  );
+  $contfields = taxonomy_get_vocabularies();
+  foreach ($contfields as $item) {
+    $form['term_tables'][$item->machine_name] = array(
+      '#type' => 'fieldset',
+      '#title' => t($item->name.' tables'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['term_tables'][$item->machine_name]['options'] = array(
+      '#type' => 'checkboxes',
+      '#options' => _get_entity_bundle_options('taxonomy_term', $item->machine_name),
+      '#default_value' => _get_selected_options('taxonomy_term', $item->machine_name),
+    );
+  }
+  $form['node_tables'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Node tables'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+  $form['node_tables']['options'] = array(
+    '#type' => 'checkboxes',
+    '#options' => _get_entity_bundle_options('node', 'all'),
+    '#default_value' => _get_selected_options('node', 'all'),
+  );
+  $contfields = node_type_get_types();
+  foreach ($contfields as $key=>$value) {
+    $form['node_tables'][$key] = array(
+      '#type' => 'fieldset',
+      '#title' => t($key.' tables'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['node_tables'][$key]['options'] = array(
+      '#type' => 'checkboxes',
+      '#options' => _get_entity_bundle_options('node', $key),
+      '#default_value' => _get_selected_options('node', $key),
+    );
   }
   
-  $form['content_expimp_admin_settings'] = array(
-    '#type' => 'radios',
-    '#title' => t('Select what to reset'),
-    '#prefix' => '<strong>Select this option to delete the files directory and/or the database tables for the current site, resetting the site so that Drupal is ready to be reinstalled from scratch.</strong>',
-    '#options' => $alltables
-  );
+  $contfields = array('shared', 'user', 'block', 'locale');
+  foreach ($contfields as $item) {
+    $form[$item.'_tables'] = array(
+      '#type' => 'fieldset',
+      '#title' => t($item.' tables'),
+      '#collapsible' => TRUE,
+      '#collapsed' => FALSE,
+    );
+    $form[$item.'_tables']['options'] = array(
+      '#type' => 'checkboxes',
+      '#options' => _get_entity_bundle_options($item, 'all'),
+      '#default_value' => _get_selected_options($item, 'all'),
+    );
+  }
 
   $form['submit'] = array(
     '#type' => 'submit',
-    '#value' => t('Generate diff'),
+    '#value' => t('Save configurations'),
   );
 
-  $form['#validate'][] = 'content_expimp_admin_settings_validate';
+  //$form['#validate'][] = 'content_expimp_admin_settings_validate';
   $form['#submit'][] = 'content_expimp_admin_settings_submit';
 
   return $form;
@@ -169,4 +481,95 @@ function content_expimp_admin_settings_submit($form, &$form_state) {
   }
 
   drupal_set_message('Actions will come soon.');
+}
+
+/**
+ * Searches default database and returns all of its tables().
+ */
+function _get_all_database_tables() {
+  global $databases;
+  $chosen_tables = db_find_tables($databases['default']['default']['prefix'] . '%');
+  foreach ($chosen_tables as $key=>$value) {
+    $alltables[$key] = $value;
+  }
+  return $alltables;
+}
+
+/**
+ * Finds all tables not selected for exporting.
+ */
+function _get_leftout_tables($allthem) {
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  $leftarr = array();
+  foreach ($allthem as $item) {
+    $leftout = TRUE;
+    foreach ($chosen_tables as $entity) {
+      foreach ($entity as $selected_tables) {
+        if (in_array($item, $selected_tables)) {
+          $leftout = FALSE;
+          break;
+        }
+      }
+      if (!$leftout) {
+        break;
+      }
+    }
+    if ($leftout) {
+      $leftarr[$item] = $item;
+    }
+  }
+  return $leftarr;
+}
+
+/**
+ * Searches default database for existing content types.
+ */
+function _get_entity_bundle_options($entity, $bundle = 'all') {
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  $options = array();
+  if ($bundle != 'all') {
+    $instances = field_info_instances($entity, $bundle);
+    if ($entity == 'node') {
+      foreach ($instances as $key=>$value) {
+        $options['field_data_'.$key] = 'field_data_'.$key;
+        $options['field_revision_'.$key] = 'field_revision_'.$key;
+      }
+    }
+    elseif ($entity == 'taxonomy_term') {
+      foreach ($instances as $key=>$value) {
+        $options['field_data_'.$value['field_name']] = 'field_data_'.$value['field_name'];
+        $options['field_revision_'.$value['field_name']] = 'field_revision_'.$value['field_name'];
+      }
+    }
+  }
+  else {
+    $instances = $chosen_tables[$entity]['all'];
+    foreach ($instances as $key=>$value) {
+      $options[$value] = $value;
+    }
+  }
+  return $options;
+}
+
+/**
+ * Searches default database and returns all of its tables().
+ */
+function _get_selected_options($entity, $bundle = 'all') {
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  if ($entity == 'all') {
+    $targetarr = array_merge($chosen_tables['users'], $chosen_tables['nodes'], $chosen_tables['taxonomy_term'], $chosen_tables['locale'], $chosen_tables['shared']);
+  }
+  else {
+/**
+  	 if ($entity == 'taxonomy_term') {
+  	   $value = $value['field_name'];
+  	 }
+*/
+    $targetarr = $chosen_tables[$entity][$bundle];
+  }
+  $options = array();
+  foreach ($targetarr as $key=>$value) {
+    $options[] = $value;
+  }
+  return $options;
 }
