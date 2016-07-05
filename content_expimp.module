@@ -5,9 +5,10 @@
  * database with an option to exclude table data (e.g. cache_*)
  */
 
-include_once 'includes/mysqldumpdiff.class.php';
+define('MODULE_VERSION', '7.x-1.x');
+require 'includes/mysqldumpdiff.class.inc';
+require 'includes/db_mysql.class.inc';
 
-/* Drupal Hooks */
 
 /**
  * Implements hook_menu().
@@ -17,14 +18,16 @@ function content_expimp_menu() {
   $items['admin/content/content_expimp'] = array(
     'title' => 'Content exPimp',
     'description' => 'Backup/export data with an optional diff feature',
-    'page callback' => 'content_expimp_export',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('content_expimp_export'),
     'access arguments' => array('perform content export'),
     'type' => MENU_NORMAL_ITEM,
   );
   $items['admin/content/content_expimp/export'] = array(
     'title' => 'Content exPimp',
     'description' => 'Backup/export data with an optional diff feature',
-    'page callback' => 'content_expimp_export',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('content_expimp_export'),
     'access arguments' => array('perform content export'),
     'weight' => 0,
     'type' => MENU_DEFAULT_LOCAL_TASK,
@@ -64,13 +67,32 @@ function content_expimp_permission() {
  */
 function content_expimp_export($form, &$form_state) {
 
-  if (isset($form_state['result'])) {
-    $form['sql'] = array(
-    '#type' => 'textarea',
-    '#title' => t('Diff SQL:'),
-    '#rows' => $form_state['rows'],
-    '#default_value' => $form_state['result'],
-    );
+  if (isset($form_state['sqldump'])) {
+  	 if ($form_state['rows'] > 0) {
+      $form['sql'] = array(
+      '#type' => 'textarea',
+      '#title' => t('File content'),
+      '#rows' => $form_state['rows'],
+      '#default_value' => $form_state['sqldump'],
+      );
+    }
+    else {
+      $form['download'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('File link'),
+        '#collapsible' => FALSE,
+        '#collapsed' => FALSE,
+      );
+      $form['download']['link'] = array(
+        '#markup' => $form_state['link'],
+      );
+      $form['sql'] = array(
+      '#type' => 'textarea',
+      '#title' => t('File header'),
+      '#rows' => 4,
+      '#default_value' => $form_state['sqldump'],
+      );
+    }
   }
   else {
     $form['export'] = array(
@@ -86,12 +108,56 @@ function content_expimp_export($form, &$form_state) {
         'locale' => t('Export locale data'),
       ),
     );
+    $form['destination'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Export destination'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['destination']['options'] = array(
+      '#type' => 'select',
+      '#title' => t('Select where to export'),
+      '#required' => TRUE,
+      '#options' => array(
+        0 => t('Print inside a textarea'),
+        1 => t('Save to private directory'),
+      ),
+      '#default_value' => 1,
+      '#description' => 'Required writable private directory /sites/default/private/content_expimp.'
+    );
+    $form['destination']['filename'] = array(
+    '#type' => 'textfield',
+    '#title' => t('File name'),
+    '#default_value' => _get_formated_domain(url('', array('absolute' => TRUE))),
+    );
     $form['diff'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Diff option'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+    );
+    $form['diff']['generate_diff'] = array(
       '#type' => 'checkbox',
       '#title' => t('Generate diff export'),
       '#description' => 'Export only changes from previous export.',
     );
-  
+    $form['diff']['older_backup'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Older backup name'),
+    '#required' => FALSE,
+    '#default_value' => '',
+    );
+    $form['append_timestamp'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Append a timestamp.'),
+    '#default_value' => 1,
+    );
+    $form['timestamp_format'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Timestamp format'),
+    '#default_value' => 'Y-m-d\TH-i-s',
+    '#description' => t('Should be a PHP <a href="http://www.php.net/date">date()</a> format string.'),
+    );
     $form['submit'] = array(
       '#type' => 'submit',
       '#value' => t('Export'),
@@ -128,119 +194,153 @@ function content_expimp_export_validate($form, &$form_state) {
  * Submit handler for export form.
  */
 function content_expimp_export_submit($form, &$form_state) {
-  //require (dirname(__FILE__).'/includes/mysqldumpdiff.class.php');
+  require (dirname(__FILE__).'/includes/content.db.map.inc');
+  $dbmysql = new backup_migrate_dbmysql();
+  $filename = _get_file_name($form_state);
+  $exported_content = _export_selected_content($form_state['values']['export'], $dbmysql);
 
-  $export_what = $form_state['values']['export'];
-  $exported_content = _export_selected_content($export_what);
-
-  $generate_diff = $form_state['values']['diff'];
-  if ($generate_diff) {
+  if ($form_state['values']['generate_diff']) {
   	 $obj = new MySQLdumpDiff();
-    $obj->File1 = 'bckp_tecnonet_usersdata.mysql';
+    $obj->File1 = DRUPAL_ROOT.'/sites/default/private/content_expimp/'.$form_state['values']['older_backup'];
     $obj->File2 = $exported_content;
-    $obj->File3 = 'diff_usersdata.mysql';
+    $obj->File3 = DRUPAL_ROOT.'/sites/default/private/content_expimp/'.$filename;
+    $obj->Header = $dbmysql->_get_sql_file_header();
+    $obj->Footer = $dbmysql->_get_sql_file_footer();
     $obj->Options = array(2,2); // 1= with statistics per table , 2= without / 1= with CREATE statements , 2= without
-    $obj->Export = 'print'; // or 'file'
-    $obj->ProcessFiles();
+    $obj->Export = 'file'; // or 'return'
+    $sqlarr = $obj->ProcessFiles();
+    $sql_output = "";
+    foreach ($sqlarr as $key=>$value) {
+      $sql_output .= $value."\n";
+	 }
+    $rows = 16;
   }
   else {
-    $output = "";
-    $rows = 0;
+    $sql_output = $dbmysql->_get_sql_file_header();
+    $rows = 16 + count($exported_content);
     foreach ($exported_content as $key=>$value) {
-      $output .= $value."\n";
-      $rows++;
+      $sql_output .= $value;
 	 }
+    $sql_output .= $dbmysql->_get_sql_file_footer();
   }
-  
-  $form_state['rows'] = $rows;
-  $form_state['result'] = $output;
+
+  $form_state['link'] = _get_file_link($form_state);
+  $form_state['sqldump'] = $sql_output;
+  $form_state['rows'] = ($rows-16)*2;
   $form_state['rebuild'] = TRUE;
 }
 
 /**
  * Process export.
  */
-function _export_selected_content($selection) {
+function _export_selected_content($selection, $dbmysql) {
   require (dirname(__FILE__).'/includes/content.db.map.inc');
 
   $tables_selected = array();
   foreach ($selection as $key=>$value) {
   	 if ($value !== 0) {
-      foreach ($chosen_tables[$key] as $item) {
-        $tables_selected = array_merge($tables_selected, $item);
+      foreach ($chosen_tables[$key] as $bundle) {
+        $tables_selected = array_merge($tables_selected, $bundle);
       }
     }
   }
+  $tables_info = $dbmysql->_get_tables_info();
   $export_sql = array();
   foreach ($tables_selected as $table) {
-    $export_sql = array_merge($export_sql, _dump_table_data_sql_to_array($table));
+  	 $temp = $dbmysql->_get_table_structure_sql($tables_info, $table);
+  	 $export_sql[] = _remove_comments_from_create($temp);
+    $export_sql = array_merge($export_sql, $dbmysql->_dump_table_data_sql_to_array($table));
   }
 
   return $export_sql;
 }
 
-  /**
-   *  Get the sql to insert the data for a given table
-   */
-function _dump_table_data_sql_to_array($table) {
-  $tobe_file = array();
-  $rows_per_line = 30;
-  $bytes_per_line = 2000;
-  
-  $lines = 0;
-  $data = db_select($table, 't')
-    ->fields('t', array())
-    ->execute()
-    ->fetchAll(PDO::FETCH_ASSOC); 
-  $rows = $bytes = 0;
-
-  // Escape backslashes, PHP code, special chars
-  $search = array('\\', "'", "\x00", "\x0a", "\x0d", "\x1a");
-  $replace = array('\\\\', "''", '\0', '\n', '\r', '\Z');
-  
-  $line = array();
-  foreach ($data as $row) {
-    $tobe_line = "";
-    // DB Escape the values.
-    $items = array();
-    foreach ($row as $key => $value) {
-      $items[] = is_null($value) ? "null" : "'". str_replace($search, $replace, $value) ."'";
+/**
+ * This function is an improvise to go around problems with character encoding inside comments, particularly a similar to the symbol (´).
+ */
+function _remove_comments_from_create($line) {
+  $line_parts = explode(" COMMENT", $line);
+  foreach ($line_parts as $key=>$value) {
+    if ($key == 0) {
+      $nocomments = $value;
     }
-
-    // If there is a row to be added.
-    if ($items) {
-      // Start a new line if we need to.
-      if ($rows == 0) {
-        $tobe_line .= "INSERT INTO `". $table ."` VALUES ";
-        $bytes = $rows = 0;
-      }
-      // Otherwise add a comma to end the previous entry.
-      else {
-        $tobe_line .= ",";
-      }
-
-      // Write the data itself.
-      $sql = implode(',', $items);
-      $tobe_line .= '('. $sql .')';
-      $bytes += strlen($sql);
-      $rows++;
-
-      // Finish the last line if we've added enough items
-      if ($rows >= $rows_per_line || $bytes >= $bytes_per_line) {
-        $tobe_file[] = $tobe_line.";\n";
-        $lines++;
-        $bytes = $rows = 0;
-      }
+    else {
+      $pos = strpos($value, "'", 2);
+      $nocomments .= substr($value, $pos+1, strlen($value)-$pos-1);
     }
   }
-  // Finish any unfinished insert statements.
-  if ($rows > 0) {
-    $tobe_file[] = $tobe_line.";\n";
-    $lines++;
-  }
-
-  return $tobe_file;
+  return $nocomments;
 }
+
+
+/**
+ * Returns the link to download the sql dump file.
+ */
+function _get_file_link($settings) {
+  $filename = _get_file_name($settings);
+  return '<a href="/sites/default/private/content_expimp/'.$filename.'">'.$filename.'</a>';
+}
+
+/**
+ * Returns a formated file name.
+ */
+function _get_file_name($settings) {
+  // Get the raw filename from the settings.
+  $filename = $settings['values']['filename'];
+  if ($settings['values']['generate_diff']) {
+    $filename = str_replace('[content]', '[content]_diff', $filename);
+  }
+  // Replace any tokens
+  $chosen = _get_chosen_data_string($settings['values']['export']);
+  $filename = str_replace('[content]', $chosen, $filename);
+  // if (module_exists('token') && function_exists('token_replace')) { $filename = token_replace($filename); }
+
+  // Remove illegal characters
+  $filename = preg_replace("/[^a-zA-Z0-9\.\-_]/", "", $filename);
+
+  // Generate a timestamp if needed.
+  $timestamp = '';
+  if ($settings['values']['append_timestamp'] && $settings['values']['timestamp_format']) {
+    $timestamp = format_date(time(), 'custom', $settings['values']['timestamp_format']);
+  }
+  // If there is no filename, then just call it untitled.
+  if (drupal_strlen($filename) == 0) {
+    $filename = 'untitled';
+  }
+  else {
+    // Trim to length if needed to allow the timestamp to fit into the max filename.
+    $max_name_len = 255 - drupal_strlen($timestamp);
+    if (drupal_strlen($filename) > $max_name_len) {
+      $filename = drupal_substr($filename, 0, $max_name_len);
+    }
+    $filename .= '_' . $timestamp;
+    $filename = trim($filename, '-');
+  }
+  return $filename.'.sql';
+}
+
+/**
+ * Returns the keys of chosen options from 'checkboxes' in a formated string.
+ */
+function _get_chosen_data_string($options) {
+  $out = "";
+  foreach ($options as $key=>$value) {
+  	 if ($value !== 0) {
+      $out .= $key.'-';
+    }
+  }
+  return substr($out, 0, -1);
+}
+
+/**
+ * Returns just the domain string replacing dots.
+ */
+function _get_formated_domain($url) {
+  $old = array(".", "http://", "https://", "www.", "/");
+  $new = array("-", "", "", "", "");
+  $out = str_replace($old, $new, $url);
+  return $out.'_[content]';
+} 
 
 /**
  * Implements hook_theme().
@@ -268,7 +368,7 @@ function theme_content_expimp_display($variables) {
  */
 function content_expimp_admin_settings() {
   $alltables = _get_all_database_tables();
-  $leftables = _get_left_tables($alltables);
+  $leftables = _get_leftout_tables($alltables);
   
   $form['other_tables'] = array(
     '#type' => 'fieldset',
@@ -398,7 +498,7 @@ function _get_all_database_tables() {
 /**
  * Finds all tables not selected for exporting.
  */
-function _get_left_tables($allthem) {
+function _get_leftout_tables($allthem) {
   require (dirname(__FILE__).'/includes/content.db.map.inc');
   $leftarr = array();
   foreach ($allthem as $item) {

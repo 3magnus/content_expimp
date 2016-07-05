@@ -14,7 +14,7 @@ $chosen_tables = array(
     'place' => array('field_data_field_logo', 'field_data_field_place_body', 'field_data_field_place_categs', 'field_data_field_place_diffs', 'field_data_field_place_name', 'field_revision_field_logo', 'field_revision_field_place_body', 'field_revision_field_place_categs', 'field_revision_field_place_diffs', 'field_revision_field_place_name'),
   ),
   'shared' => array(
-    'all' => array('field_data_field_city_term', 'field_data_field_datetime', 'field_data_field_geodata', 'field_data_field_location_taxonomize_terms', 'field_data_field_refaddress', 'field_data_field_refplace', 'field_revision_field_city_term', 'field_revision_field_datetime', 'field_revision_field_geodata', 'field_revision_field_location_taxonomize_terms', 'field_revision_field_refaddress', 'field_revision_field_refplace', 'file_managed', 'file_usage', 'rdf_mapping', 'url_alias')
+    'all' => array('field_data_field_datetime', 'field_data_field_geodata', 'field_data_field_location_taxonomize_terms', 'field_data_field_refaddress', 'field_data_field_refplace', 'field_revision_field_datetime', 'field_revision_field_geodata', 'field_revision_field_location_taxonomize_terms', 'field_revision_field_refaddress', 'field_revision_field_refplace', 'file_managed', 'file_usage', 'rdf_mapping', 'url_alias')
   ),
   'taxonomy_term' => array(
     'all' => array('taxonomy_index', 'taxonomy_term_data', 'taxonomy_term_hierarchy'),

@@ -11,6 +11,8 @@ class MySQLdumpDiff {
 	public $File1;
 	public $File2;
 	public $File3;
+	public $Header;
+	public $Footer;
 	public $Options;
 	public $Export;
 	private $FileDesc;
@@ -23,7 +25,7 @@ class MySQLdumpDiff {
 	
 	function ProcessFiles() {
 		$File1Array = $this->AssureOneQueryPerLine(file($this->File1));
-		$File2Array = $this->AssureOneQueryPerLine($this->File2); //file($this->File2));
+		$File2Array = $this->AssureOneQueryPerLine($this->File2);
 		$File3Array = array();
 		$DeletesArray = array();
 		$Result = array('Repeats' => 0, 'UPDATES' => 0, 'DELETES' => 0, 'INSERTS' => 0);
@@ -159,23 +161,25 @@ class MySQLdumpDiff {
 								$MatchesArray = array_filter($InsertArray1, function($Values) use ($UniqueValue) {
       	  						return (strpos($Values, $UniqueValue) !== FALSE);
     							});
-								if (empty($MatchesArray)) 	{
-									$ValuesArray[] = $Value22;
+								if (!empty($MatchesArray)) 	{
 									$Searching = FALSE;
 								}
 								$CurrKey = next($CorrespKey);
 							}
+							if ($Searching) {
+								$ValuesArray[] = $Value22;
+							}
 						}
 				 	}
-				 	if ($Searching && !empty($ValuesArray)) {
+				 	if (!empty($ValuesArray)) {
 				 		$num = count($ValuesArray);
 						$Result['INSERTS'] += $num;
 						if (isset($ExtResult[$Table2]['INSERTS'])): $ExtResult[$Table2]['INSERTS'] += $num; else: $ExtResult[$Table2]['INSERTS'] = $num; endif;
 						$i = 0;
 						while ($i < $num) {
-							$Slice = array_slice($ValuesArray, $i, 200); 
+							$Slice = array_slice($ValuesArray, $i, 50); 
 							$File3Array[] = "INSERT INTO `".$Table2."` VALUES ".implode(",", $Slice).";";
-							$i += 200;
+							$i += 50;
 						}
 					}
 			 		//unset($File1Array['tables'][$CorrespKey]);
@@ -193,28 +197,29 @@ class MySQLdumpDiff {
 		}
 
 		$DiffArray = $this->GetHeaderText($Result, $ExtResult);
-		$File3Array = array_merge($File2Array['header'], $DiffArray, $File3Array);
+		$File3Array = array_merge($DiffArray, $File3Array);
+		if (!empty($this->Header)) {
+			$HeaderArray = preg_split("/\\r\\n|\\r|\\n/", $this->Header);
+			$File3Array = array_merge($HeaderArray, $File3Array);
+		}
+		if (!empty($this->Footer)) {
+			$FooterArray = preg_split("/\\r\\n|\\r|\\n/", $this->Footer);
+			$File3Array = array_merge($File3Array, $FooterArray);
+		}
 		if ($this->Export == 'file') {
 			$this->OpenFile();
 			$this->WriteArrayToFile($File3Array);
+			return $DiffArray;
 		}
 		else {
-			$output = "";
-			$rows = 0;
-			foreach ($File3Array as $item) {
-				$output .= $item."\n";
-				$rows++;
-			}
-			print '<form action="#" method="post" id="export-form" accept-charset="UTF-8"><div>
-<label for="diff-export">Diff SQL:</label><br>
-<textarea id="diff-export" name="diff-sql" cols="180" rows="'.$rows.'">
-'.$output.'
-</textarea>
-</div></form>';
+			return $File3Array;			
 		}
 	}
 
 
+  /**
+   * Remove COMMENTs from CREATE queries and assure one query per line instead of multi-lined queries
+   */
 	function AssureOneQueryPerLine($FArray) {
 		$NewKey = 0;
 		$OutArray = array(
@@ -223,6 +228,7 @@ class MySQLdumpDiff {
 			'queries' => array()
 		);
 		$GatheringQuery = FALSE;
+		$GatheringCreate = FALSE;
 		foreach ($FArray as $Key=>$Value) {
 			$Value = trim($Value);
 			$Begin = substr($Value, 0, 11);
@@ -233,12 +239,17 @@ class MySQLdumpDiff {
 				$OutArray['header'][] = $Value;
 			}
 			elseif ($GatheringQuery) {
-				$QueryString .= $Value;
 				$End = substr($Value, -1, 1);
+				if ($GatheringCreate) {
+					$LineParts = explode(" COMMENT", $Value);
+					$Value = $LineParts[0].$End; 
+				}
+				$QueryString .= $Value;
 				if ($End == ";") {
 					$OutArray['queries'][$NewKey] = $QueryString;
 					$NewKey++;
 					$GatheringQuery = FALSE;
+					$GatheringCreate = FALSE;
 				}
 			}
 			else {
@@ -246,11 +257,12 @@ class MySQLdumpDiff {
 				if (substr($Value, 0, 11) == "CREATE TABL") {
 					$QueryString = str_replace("CREATE TABLE `", "CREATE TABLE IF NOT EXISTS `", $Value);
 					if ($End == ";") {
-						$OutArray['queries'][$NewKey] = $QueryString;
+						$OutArray['queries'][$NewKey] = $this->RemoveCommentsFromCreate($QueryString);
 						$NewKey++;
 					}
 					else {
 						$GatheringQuery = TRUE;
+						$GatheringCreate = TRUE;
 					}
 				}
 				elseif (substr($Value, 0, 11) == "INSERT INTO") {
@@ -270,18 +282,36 @@ class MySQLdumpDiff {
 	}
 	
 
+	/**
+	 * This function is an improvise to go around problems with character encoding inside comments, particularly a similar to the symbol (´).
+	 */
+	function RemoveCommentsFromCreate($QLine) {
+		$LineParts = explode(" COMMENT", $QLine);
+		foreach ($LineParts as $Key=>$Value) {
+			if ($Key == 0) {
+				$noComments = $Value;
+			}
+			else {
+				$Pos = strpos($Value, "'", 2);
+				$noComments .= substr($Value, $Pos+1, strlen($Value)-$Pos-1);
+			}
+		}
+		return $noComments;
+	}
+
+
 	function GetTableName($QLine) {
-		$pos = strpos($QLine, "` (`"); // phpMyAdmin3.4 notation
-		if ($pos === FALSE) {
-			$pos = strpos($QLine, "` VALUES"); // Backup & Migrate for Drupal 7 notation
-			if ($pos === FALSE) {
-				$pos = strpos($QLine, "' VALUES");
-				if ($pos === FALSE) {
+		$Pos = strpos($QLine, "` (`"); // phpMyAdmin3.4 notation
+		if ($Pos === FALSE) {
+			$Pos = strpos($QLine, "` VALUES"); // Backup & Migrate for Drupal 7 notation
+			if ($Pos === FALSE) {
+				$Pos = strpos($QLine, "' VALUES");
+				if ($Pos === FALSE) {
 					die("ERROR");
 				}
 			}
 		}
-		return substr($QLine, 13, $pos-13);
+		return substr($QLine, 13, $Pos-13);
 	}	
 
 
@@ -374,14 +404,15 @@ class MySQLdumpDiff {
 	
 
 	function GetHeaderText($ResultArray, $ExtResultArray) {
+		$PathArray = explode("/", $this->File1);
+		$FileName = end($PathArray); 
 		$ResultString = "";
 		foreach ($ResultArray as $Key=>$Value) {
-			$ResultString .= " &nbsp; ".$Key."=".$Value;
+			$ResultString .= "   ".$Key."=".$Value;
 		}
 		$HeaderArray[] = "-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -";
-		$HeaderArray[] = "-- File1: ".$this->File1;
-		$HeaderArray[] = "-- File2: ".$this->File2;
-		$HeaderArray[] = "-- Diff:".$ResultString;
+		$HeaderArray[] = "-- Diff from: ".$FileName;
+		$HeaderArray[] = "-- Diff summary:".$ResultString;
 		$HeaderArray[] = "-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -";
 		if ($this->Options[0] == 1) {
 			foreach ($ExtResultArray as $Key=>$Value) {
@@ -395,20 +426,17 @@ class MySQLdumpDiff {
 	}
 
 
-	function OpenFile()
-	{
-		$this->FileDesc = fopen($this->File3,"w");
+	function OpenFile() {
+		$this->FileDesc = fopen($this->File3, "w");
 	}
 
 
-	function WriteArrayToFile($FArray)
-	{
-		foreach ($FArray as $item)
-		{
-			fwrite($this->FileDesc, $item);
+	function WriteArrayToFile($FArray) {
+		foreach ($FArray as $item) 	{
+			fwrite($this->FileDesc, $item."\n");
 		}
 		fclose($this->FileDesc);
-		print "<p>Differences saved in: <strong>".$this->File3."</strong>";
+		//print "<p>Differences saved in: <strong>".$this->File3."</strong>";
 	}
 
 }
