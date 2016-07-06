@@ -1,6 +1,8 @@
 <?php
-// content_tables[] = pathauto_state (pathauto)
-// content_tables[] = workflow_node_history (workflow)
+global $latest_full_backup;
+$latest_full_backup = 'bckp_tecnonet--usersdata-2016-07-04T20-06-06.sql';
+// content_tables[] = pathauto_state (pathauto), workflow_node_history (workflow)
+global $chosen_tables;
 $chosen_tables = array(
   'user' => array(
     'all' => array('field_data_field_birthday', 'field_data_field_fbappscopedid', 'field_data_field_fullname', 'field_data_field_gender', 'field_data_field_nickname', 'field_revision_field_birthday', 'field_revision_field_fbappscopedid', 'field_revision_field_fullname', 'field_revision_field_gender', 'field_revision_field_nickname', 'history', 'users', 'users_roles'),
